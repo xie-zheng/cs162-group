@@ -1,7 +1,9 @@
 #include "userprog/process.h"
+#include <ctype.h>
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +26,7 @@ static struct semaphore temporary;
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
+void load_args(char* file_name, void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 
 /* Initializes user programs in the system by ensuring the main
@@ -69,6 +72,49 @@ pid_t process_execute(const char* file_name) {
   return tid;
 }
 
+/* from sunnytower/cs162-group */
+void load_args(char* file_name, void** esp) {
+  bool in = false; /* whether in the process of copy a word */
+  int argc_ = 0;
+
+  /* load argvs on stack */
+  char* iter = *esp;
+  for (int i = strlen(file_name) - 1; i >= 0; i--) {
+    char c = file_name[i];
+    if (!isspace(c)) {
+      if (!in) {    /* enter new word */
+        *(--iter) = '\0';
+        argc_ += 1;
+        in = !in;
+      }
+      *(--iter) = c;
+    } else {        /* meet white space */
+      if (in)
+        in = !in;
+    }
+  }
+  
+  /* align the stack by 4 */
+  uintptr_t* argv_ = (uintptr_t*)(iter - (4 - ((char*)*esp - iter) % 4));
+
+  /* argv[] */
+  *(--argv_) = 0;
+  argv_ -= argc_;
+  for (int i = 0; i < argc_; i++) {
+    argv_[i] = (uintptr_t) iter;
+    /* reach next argv */
+    while (*(iter++)) {} 
+  }
+
+  /* argc */
+  argv_ -= 1;
+  *argv_ = (uintptr_t)(argv_+ 1);
+  *(--argv_) = argc_;
+  *(--argv_) = 0;
+
+  *esp = argv_;
+}
+
 /* A thread function that loads a user process and starts it
    running. */
 static void start_process(void* file_name_) {
@@ -101,6 +147,9 @@ static void start_process(void* file_name_) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
   }
+  
+  /* load argc & argv */
+  load_args(file_name, &if_.esp);
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
@@ -118,6 +167,8 @@ static void start_process(void* file_name_) {
     sema_up(&temporary);
     thread_exit();
   }
+
+  /* push argc & argv on stack */
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
