@@ -77,23 +77,23 @@ void load_args(char* file_name, void** esp) {
   bool in = false; /* whether in the process of copy a word */
   int argc_ = 0;
 
-/*           
-0xbffffffc   argv[3][...]    bar\0       char[4]
-0xbffffff8   argv[2][...]    foo\0       char[4]
-0xbffffff5   argv[1][...]    -l\0        char[3]
-0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
-0xbfffffec   stack-align       0         uint8_t
-0xbfffffe8   argv[4]           0         char *
-0xbfffffe4   argv[3]        0xbffffffc   char *
-0xbfffffe0   argv[2]        0xbffffff8   char *
-0xbfffffdc   argv[1]        0xbffffff5   char *
-0xbfffffd8   argv[0]        0xbfffffed   char *
-0xbfffffd4   argv           0xbfffffd8   char **
-0xbfffffd0   argc              4         int
-0xbfffffcc   return address    0         void (*) ()
-*/
+  /*           
+  0xbffffffc   argv[3][...]    bar\0       char[4]
+  0xbffffff8   argv[2][...]    foo\0       char[4]
+  0xbffffff5   argv[1][...]    -l\0        char[3]
+  0xbfffffed   argv[0][...]    /bin/ls\0   char[8]
+  0xbfffffec   stack-align       0         uint8_t
+  0xbfffffe8   argv[4]           0         char *
+  0xbfffffe4   argv[3]        0xbffffffc   char *
+  0xbfffffe0   argv[2]        0xbffffff8   char *
+  0xbfffffdc   argv[1]        0xbffffff5   char *
+  0xbfffffd8   argv[0]        0xbfffffed   char *
+  0xbfffffd4   argv           0xbfffffd8   char **
+  0xbfffffd0   argc              4         int
+  0xbfffffcc   return address    0         void (*) ()
+  */
  
- /* load argvs on stack */
+  /* load argvs on stack */
   char* iter = *esp;
   for (int i = strlen(file_name) - 1; i >= 0; i--) {
     char c = file_name[i];
@@ -110,11 +110,13 @@ void load_args(char* file_name, void** esp) {
     }
   }
   
-  /* align the stack by 4 */
+  /* align the stack by 4byte */
   uintptr_t* argv_ = (uintptr_t*)(iter - (4 - ((char*)*esp - iter) % 4));
 
-  /* argv[] */
-  /* NULL和0在语义上有所不同，尽管在大多数情况下它们的内部值是相同的。当你处理指针时，建议使用NULL */
+  /* align the stack by 16byte */
+  argv_ -= ((uintptr_t)(argv_ - (argc_ + 3)) % 16) / 4;
+
+  /* argv[argc] = 0 */
   *(--argv_) = 0; 
   argv_ -= argc_;
   for (int i = 0; i < argc_; i++) {
@@ -123,11 +125,10 @@ void load_args(char* file_name, void** esp) {
     while (*(iter++)) {} 
   }
 
-  /* argc */
-  argv_ -= 1;
-  *argv_ = (uintptr_t)(argv_+ 1);
-  *(--argv_) = argc_;
-  *(--argv_) = 0;
+  argv_ -= 1;                      /* *argv = argv+1 */
+  *argv_ = (uintptr_t)(argv_+ 1);  /* argv */
+  *(--argv_) = argc_;              /* argc */
+  *(--argv_) = 0;                  /* return addr = 0 */
 
   *esp = argv_;
 }

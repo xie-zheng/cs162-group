@@ -135,9 +135,22 @@ static void page_fault(struct intr_frame* f) {
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  /* attempt to write to a read-only region is always killed. */
+  //if (!not_present)
+  //  goto VIOLATED_ACCESSS;
+
+  //struct thread* cur = thread_current();
+  //void* fault_page = (void*) pg_round_down(fault_addr);
+
+  /* usermode: 从intr_frame中取stack_pointer
+   * kernelmode: 直接从当前的线程信息中拿 */
+  //void* esp = user ? f->esp : cur->stack;
+
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
+
+//VIOLATED_ACCESSS:
   printf("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
          not_present ? "not present" : "rights violation", write ? "writing" : "reading",
          user ? "user" : "kernel");
