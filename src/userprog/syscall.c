@@ -13,15 +13,8 @@ static void syscall_handler(struct intr_frame*);
 
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 
-/*
- * Methods for:
- * safely read and write memory that’s in a user process’s virtual address space.
- */
 
-/* release the resources and exit */
-static void sys_exit(int status UNUSED) {
-  process_exit();
-}
+/* ----- handler user virtual memory ----- */
 
 /* verify the validity of a user-provided pointer. */
 static inline bool verify_vaddr(const uint8_t* vaddr) { return !(vaddr == NULL || pagedir_get_page(thread_current()->pcb->pagedir, vaddr) == NULL); }
@@ -41,7 +34,34 @@ static void verify_str(const char* ptr) {
 }
 
 
-/* ----- syscall handler ----- */
+/* ----- hanlders for syscall ----- */
+
+/* release the resources and exit */
+static void sys_exit(int status UNUSED) {
+  process_exit();
+}
+
+/* 
+ * wait must fail and return -1 immediately if any of the following conditions are true:
+ *
+ * 1. pid does not refer to a direct child of the calling process. 
+ *    pid is a direct child of the calling process if and only if 
+ *    the calling process received pid as a return value from a successful call to exec. 
+ *    Note that children are not inherited: if A spawns child B and B spawns child process C,
+ *    then A cannot wait for C, even if B is dead. A call to wait(C) by process A must fail. 
+ *    Similarly, orphaned processes are not assigned to a new parent if their parent process exits before they do.
+ *
+ * 2. The process that calls wait has already called wait on pid.
+ *    That is, a process may wait for any given child at most once.
+ */
+int wait (pid_t pid) {
+  // cond1
+  return -1;
+}
+
+
+
+/* ----- syscall dispatcher ----- */
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
