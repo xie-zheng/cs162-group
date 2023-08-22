@@ -136,7 +136,16 @@ void load_args(char* file_name, void** esp) {
 /* A thread function that loads a user process and starts it
    running. */
 static void start_process(void* file_name_) {
-  char* file_name = (char*)file_name_;
+  char* argv = (char*)file_name_;
+
+  /* cut the argv to get program name
+   * "program arg1 arg2" -> "program" */
+  int len = 0;
+  while (!isspace(argv[len]) && argv[len] != '\0')
+    len++;
+  char* file_name = malloc(len + 1);
+  strlcpy(file_name, argv, len+1);
+
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
@@ -152,9 +161,13 @@ static void start_process(void* file_name_) {
     new_pcb->pagedir = NULL;
     t->pcb = new_pcb;
 
+    // Intialize file descriptors
+    // 0, 1, 2 is reserved for stdin, stdout, stderr
+    new_pcb->next_fd = 3;
+
     // Continue initializing the PCB as normal
     t->pcb->main_thread = t;
-    strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+    strlcpy(t->pcb->process_name, file_name, len+1);
   }
 
   /* Initialize interrupt frame and load executable. */
@@ -167,7 +180,7 @@ static void start_process(void* file_name_) {
   }
   
   /* load argc & argv */
-  load_args(file_name, &if_.esp);
+  load_args(argv, &if_.esp);
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
@@ -180,7 +193,8 @@ static void start_process(void* file_name_) {
   }
 
   /* Clean up. Exit on failure or jump to userspace */
-  palloc_free_page(file_name);
+  palloc_free_page(argv);
+  free(file_name);
   if (!success) {
     sema_up(&temporary);
     thread_exit();

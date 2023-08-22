@@ -27,6 +27,12 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
+
+  /* project1 */
+  pid_t childs[16];           /* the childs forked from this process --- implement wait() */
+
+  struct file* fds[16];       /* opend file descriptor(limit to 16 for now) */
+  int next_fd;
 };
 
 void userprog_init(void);

@@ -3,15 +3,37 @@
 #include <syscall-nr.h>
 #include "lib/kernel/console.h"
 #include "devices/shutdown.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 
-static void syscall_handler(struct intr_frame*);
+/* since pintos' file system is not thread-safe */
+static struct lock filesys_lock;
 
-void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
+static void syscall_handler(struct intr_frame*);
+void syscall_init(void) {
+  intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&filesys_lock);
+}
+
+/* Process Control Syscalls */
+static void sys_exit(int status UNUSED);
+int sys_wait (pid_t pid);
+
+/* File Operation Syscalls */
+bool sys_create (const char *file, unsigned initial_size);
+bool sys_remove (const char *file);
+int sys_open (const char *file);
+int sys_filesize (int fd);
+int sys_read (int fd, void *buffer, unsigned size);
+int sys_write (int fd, const void *buffer, unsigned size);
+void sys_seek (int fd, unsigned position);
+unsigned sys_tell(int fd);
+void sys_close (int fd);
 
 
 /* ----- handler user virtual memory ----- */
@@ -34,15 +56,14 @@ static void verify_str(const char* ptr) {
 }
 
 
-/* ----- hanlders for syscall ----- */
+/* ----- hanlders for syscall(process) ----- */
 
 /* release the resources and exit */
 static void sys_exit(int status UNUSED) {
   process_exit();
 }
 
-/* 
- * wait must fail and return -1 immediately if any of the following conditions are true:
+/* wait must fail and return -1 immediately if any of the following conditions are true:
  *
  * 1. pid does not refer to a direct child of the calling process. 
  *    pid is a direct child of the calling process if and only if 
@@ -52,14 +73,98 @@ static void sys_exit(int status UNUSED) {
  *    Similarly, orphaned processes are not assigned to a new parent if their parent process exits before they do.
  *
  * 2. The process that calls wait has already called wait on pid.
- *    That is, a process may wait for any given child at most once.
- */
-int wait (pid_t pid) {
+ *    That is, a process may wait for any given child at most once. */
+int sys_wait (pid_t pid) {
   // cond1
   return -1;
 }
 
 
+/* ----- handlers for syscall(filesys) ----- */
+
+bool sys_create(const char *file, unsigned initial_size) {
+  bool result = false;
+  lock_acquire(&filesys_lock);
+  result = filesys_create(file, initial_size);
+  lock_release(&filesys_lock);
+  return result;
+}
+
+bool sys_remove(const char *file) {
+  bool result = false;
+  lock_acquire(&filesys_lock);
+  result = filesys_remove(file);
+  lock_release(&filesys_lock);
+  return result;
+}
+
+int sys_open(const char* file) {
+  int result = -1;
+  lock_acquire(&filesys_lock);
+  struct file* f = filesys_open(file);
+  struct process* p = thread_current()->pcb;
+  if (f != NULL) {
+    result = p->next_fd++;
+    p->fds[result] = f;
+  }
+  lock_release(&filesys_lock);
+
+  return result;
+}
+
+int sys_filesize(int fd) {
+  int size = 0;
+  lock_acquire(&filesys_lock);
+  struct process* p = thread_current()->pcb;
+  // TODO: validify the fd
+  //
+  // assume for that fd is valid
+  // what about 0, 1(stdin stdout)?
+  size = file_length(p->fds[fd]);
+  lock_release(&filesys_lock);
+
+  return size;
+}
+
+int sys_read(int fd, void *buffer, unsigned size) {
+  int result = 0;
+  lock_acquire(&filesys_lock);
+  struct process* p = thread_current()->pcb;
+  struct file* f = p->fds[fd];
+  result = file_read(f, buffer, size);
+  lock_release(&filesys_lock);
+
+  return result;
+}
+
+int sys_write(int fd, const void *buffer, unsigned size) {
+  int result = 0;
+  lock_acquire(&filesys_lock);
+  struct process* p = thread_current()->pcb;
+  struct file* f = p->fds[fd];
+  result = file_write(f, buffer, size);
+  lock_release(&filesys_lock);
+
+  return result;
+}
+
+void sys_seek(int fd, unsigned position) {
+  lock_acquire(&filesys_lock);
+  struct process* p = thread_current()->pcb;
+  struct file* f = p->fds[fd];
+  file_seek(f, position);
+  lock_release(&filesys_lock);
+}
+
+unsigned sys_tell(int fd) {
+  unsigned result;
+  lock_acquire(&filesys_lock);
+  struct process* p = thread_current()->pcb;
+  struct file* f = p->fds[fd];
+  result = file_tell(f);
+  lock_release(&filesys_lock);
+  return result;
+}
 
 /* ----- syscall dispatcher ----- */
 
