@@ -33,7 +33,7 @@ int sys_read (int fd, void *buffer, unsigned size);
 int sys_write (int fd, const void *buffer, unsigned size);
 void sys_seek (int fd, unsigned position);
 unsigned sys_tell(int fd);
-void sys_close (int fd);
+void sys_close(int fd);
 
 
 /* ----- handler user virtual memory ----- */
@@ -166,6 +166,14 @@ unsigned sys_tell(int fd) {
   return result;
 }
 
+void sys_close(int fd) {
+  lock_acquire(&filesys_lock);
+  struct process* p = thread_current()->pcb;
+  struct file* f = p->fds[fd];
+  file_close(f);
+  lock_release(&filesys_lock);
+}
+
 /* ----- syscall dispatcher ----- */
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
@@ -205,15 +213,53 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       f->eax = args[1] + 1;
       break;
   
+    case SYS_CREATE:
+      verify_str((char*)args[1]);
+      verify_multiple(args[2], 1);
+      f->eax = sys_create((char*)args[1], args[2]);
+      break;
+
+    case SYS_REMOVE:
+      verify_str((char*)args[1]);
+      f->eax = sys_remove((char*)args[1]);
+      break;
+
+    case SYS_OPEN:
+      verify_str((char*)args[1]);
+      f->eax = sys_open((char*)args[1]);
+      break;
+
+    case SYS_FILESIZE:
+      f->eax = sys_filesize(args[1]);
+      break;
+
+    case SYS_READ:
+      verify_vaddr(args[2]);
+      f->eax = sys_read(args[1], args[2], args[3]);
+      break;
+
     case SYS_WRITE:
-        /* fd 1 is console. */
-        switch(args[1]) {
-          case 1:         
-            putbuf((char*)args[2], args[3]);
-            break;
-          default:
-            break;
-        }
+      verify_vaddr(args[2]);
+      /* fd 1 is console. */
+      switch(args[1]) {
+        case 1:         
+          putbuf((char*)args[2], args[3]);
+          break;
+        default:
+          f->eax = sys_write(args[1], args[2], args[3]);
+      }
+
+    case SYS_SEEK:
+      sys_seek(args[1], args[2]);
+      break;
+
+    case SYS_TELL:
+      f->eax = sys_tell(args[1]);
+      break;
+
+    case SYS_CLOSE:
+      sys_close(args[1]);
+      break;
 
     default:
       break;
